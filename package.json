@@ -1,0 +1,15 @@
+{
+  "name": "planetar-ontology",
+  "version": "0.1.0",
+  "description": "Ontology service — CH13 reference architecture layer 4 (the entity graph)",
+  "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "start": "node src/index.ts",
+    "test": "node --test 'test/*.test.ts'",
+    "publish-synth": "node tools/publish.ts"
+  }
+}

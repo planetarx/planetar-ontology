@@ -1,0 +1,15 @@
+{
+  "//": "Editor/type-check only. Node runs the .ts sources directly via type stripping.",
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "strict": true,
+    "lib": ["ES2023"],
+    "types": ["node"],
+    "skipLibCheck": true
+  },
+  "include": ["src", "test", "tools"]
+}

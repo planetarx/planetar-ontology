@@ -1,0 +1,64 @@
+{
+  "version": "0.1.0",
+  "note": "Bootstrap registry for the planetar-ontology POC. The full registry is a git vault per ARCH-canonical-data-model.md §6; this JSON is the P1-P5 stand-in.",
+  "objectTypes": {
+    "planetar:Vessel": {
+      "extends": "core:CanonicalEntity",
+      "identifierFields": ["mmsi", "imo", "callsign"],
+      "topicPrefixes": ["entity.vessel", "vessel.ais"]
+    },
+    "planetar:Detection": {
+      "extends": "core:Observation",
+      "identifierFields": [],
+      "topicPrefixes": ["sat.detection", "eo.detection", "acoustic.detection", "rf.detection", "sar.chip", "acoustic.detect"]
+    },
+    "planetar:Track": {
+      "extends": "core:CanonicalEntity",
+      "identifierFields": ["track_id"],
+      "topicPrefixes": ["entity.track", "track.update"]
+    },
+    "planetar:Sensor": {
+      "extends": "core:CanonicalEntity",
+      "identifierFields": ["sensor_id"],
+      "topicPrefixes": ["entity.sensor"]
+    },
+    "planetar:Zone": {
+      "extends": "core:CanonicalEntity",
+      "identifierFields": ["zone_id"],
+      "topicPrefixes": ["entity.zone"]
+    }
+  },
+  "actionTypes": {
+    "planetar:ConfirmDarkVessel": {
+      "description": "Analyst confirms a candidate vessel is operating dark.",
+      "parameters": {
+        "candidate_id": { "type": "ref:planetar:Vessel", "required": true },
+        "analyst_id": { "type": "string", "required": true },
+        "rationale": { "type": "string", "required": true }
+      },
+      "target": "candidate_id",
+      "actor": "analyst_id",
+      "preconditions": [
+        { "field": "status", "op": "in", "value": ["dark-suspected", null] }
+      ],
+      "effects": [
+        { "op": "set", "field": "status", "value": "dark-confirmed" },
+        { "op": "set", "field": "confirmation_rationale", "value": "$rationale" }
+      ],
+      "event": "analyst.decision"
+    },
+    "planetar:AnnotateEntity": {
+      "description": "Attach an analyst note to any canonical entity.",
+      "parameters": {
+        "entity_id": { "type": "ref", "required": true },
+        "actor": { "type": "string", "required": true },
+        "note": { "type": "string", "required": true }
+      },
+      "target": "entity_id",
+      "actor": "actor",
+      "preconditions": [],
+      "effects": [{ "op": "set", "field": "analyst_note", "value": "$note" }],
+      "event": "analyst.annotation"
+    }
+  }
+}
