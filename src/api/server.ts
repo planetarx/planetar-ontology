@@ -7,6 +7,7 @@
  *   GET  /objects/:type                           list/search entities
  *   GET  /objects/:type/:id                       one entity, with provenance
  *   GET  /objects/:type/:id/links/:linkType       follow links
+ *   GET  /trace/:id                               causal lineage of one envelope
  *   POST /actions/:actionType                     execute an Action Type (P4)
  *   WS   /subscribe                               live entity-change feed
  *
@@ -16,7 +17,7 @@
 import http from "node:http";
 import { acceptWebSocket } from "./ws.ts";
 import type { WsConn } from "./ws.ts";
-import type { Store, EntityRecord } from "../store/store.ts";
+import type { Store, EntityRecord, EnvelopeRecord } from "../store/store.ts";
 import type { Registry } from "../registry/registry.ts";
 
 /** Result of executing an Action Type (supplied by P4's executor). */
@@ -53,6 +54,90 @@ function serializeEntity(e: EntityRecord): Record<string, unknown> {
     updatedNs: e.updatedNs.toString(),
     body: e.body,
     provenance: e.provenance,
+  };
+}
+
+function serializeEnvelope(e: EnvelopeRecord): Record<string, unknown> {
+  return {
+    id: e.id,
+    topic: e.topic,
+    source: e.source,
+    schemaName: e.schemaName,
+    correlationId: e.correlationId,
+    causationId: e.causationId,
+    createdNs: e.createdNs.toString(),
+    storedNs: e.storedNs?.toString() ?? null,
+    publishedNs: e.publishedNs?.toString() ?? null,
+  };
+}
+
+/**
+ * Assemble the /trace/:id response (ARCH-planetar-flow-trace.md §4.2):
+ * causation walked up (ancestors) and down (descendants, BFS), plus the
+ * same-correlation set and the entity whose fields this envelope's
+ * observation set. An id beyond retention yields envelope:null — the entity
+ * linkage is still attempted, since observations outlive the trace index.
+ */
+function buildTrace(store: Store, id: string): Record<string, unknown> {
+  const envelope = store.getEnvelope(id);
+  const seen = new Set<string>([id]);
+
+  const ancestors: EnvelopeRecord[] = [];
+  let missingAncestorId: string | null = null;
+  let cursor = envelope?.causationId ?? null;
+  while (cursor && ancestors.length < 32) {
+    if (seen.has(cursor)) break; // causation cycle — stop walking
+    const parent = store.getEnvelope(cursor);
+    if (!parent) {
+      missingAncestorId = cursor; // chain continues beyond retention
+      break;
+    }
+    seen.add(parent.id);
+    ancestors.push(parent);
+    cursor = parent.causationId;
+  }
+
+  const descendants: EnvelopeRecord[] = [];
+  const queue = [id];
+  while (queue.length && descendants.length < 100) {
+    const children = store.envelopesCausedBy(queue.shift()!, 100);
+    for (const child of children) {
+      if (seen.has(child.id) || descendants.length >= 100) continue;
+      seen.add(child.id);
+      descendants.push(child);
+      queue.push(child.id);
+    }
+  }
+
+  const correlated: EnvelopeRecord[] = [];
+  if (envelope?.correlationId) {
+    for (const row of store.envelopesByCorrelation(envelope.correlationId, 150)) {
+      if (seen.has(row.id) || correlated.length >= 50) continue;
+      correlated.push(row);
+    }
+  }
+
+  // envelope id === observation id; provenance obs fields point back at it
+  let entity: Record<string, unknown> | null = null;
+  const obs = store.getObservation(id);
+  if (obs?.entityId) {
+    const ent = store.getEntity(obs.entityId);
+    if (ent) {
+      const fields = Object.entries(ent.provenance)
+        .filter(([, p]) => p.obs === id)
+        .map(([field]) => field);
+      entity = { id: ent.id, type: ent.type, name: ent.name, fields };
+    }
+  }
+
+  return {
+    id,
+    envelope: envelope ? serializeEnvelope(envelope) : null,
+    ancestors: ancestors.map(serializeEnvelope),
+    descendants: descendants.map(serializeEnvelope),
+    correlated: correlated.map(serializeEnvelope),
+    missingAncestorId,
+    entity,
   };
 }
 
@@ -100,6 +185,12 @@ export function createApiServer(
           version: registry.version,
           objectTypes: Object.fromEntries(registry.objectTypes),
         });
+        return;
+      }
+
+      // GET /trace/:id
+      if (seg.length === 2 && seg[0] === "trace" && method === "GET") {
+        send(res, 200, buildTrace(store, seg[1]));
         return;
       }
 

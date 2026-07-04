@@ -10,7 +10,7 @@
     "planetar:Detection": {
       "extends": "core:Observation",
       "identifierFields": [],
-      "topicPrefixes": ["sat.detection", "eo.detection", "acoustic.detection", "rf.detection", "sar.chip", "acoustic.detect"]
+      "topicPrefixes": ["eo.detection", "rf.detection", "sar.chip", "acoustic.detect"]
     },
     "planetar:Track": {
       "extends": "core:CanonicalEntity",

@@ -10,8 +10,8 @@ Design doc: `~/data/vaults/docs/ARCH-planetar-ontology.md`.
 
 ## Status
 
-All five build phases are complete — 30 tests pass (`npm test`) and each phase
-is verified live against the running planetar-broker.
+All six build phases are complete — 37 tests pass (`npm test`); P1–P5 are
+verified live against the running planetar-broker.
 
 | Phase | Scope | State |
 |---|---|---|
@@ -20,9 +20,13 @@ is verified live against the running planetar-broker.
 | **P3** | Object API — REST + WebSocket live feed | **done** |
 | **P4** | Action Type executor (Kinetic layer) | **done** |
 | **P5** | dark-vessel re-ID kinematic match rule | **done** |
+| **P6** | envelope trace index + `GET /trace/:id` lineage API | **done** |
 
-Remaining integration: wiring `planetar-ui` to the Object API (`GET /schema`
-+ `/objects/...` + the `/subscribe` WebSocket) — a change in that repo, not this one.
+P6 (design: `ARCH-planetar-flow-trace.md`) indexes the metadata of **every**
+envelope seen on the bus — classified or not — into a bounded `envelope` table
+(`PLANETAR_TRACE_MAX`, default 200 000 rows), and serves causal lineage
+(`causationId` ancestors/descendants, `correlationId` siblings, and the entity
+fields the envelope's observation set) to the planetar-ui Flow tab.
 
 ## API
 
@@ -32,6 +36,7 @@ GET  /schema                                  compiled registry
 GET  /objects/:type[?field=value&limit&offset] list / search entities
 GET  /objects/:type/:id                        one entity, with provenance
 GET  /objects/:type/:id/links/:linkType        follow links
+GET  /trace/:id                                causal lineage of one envelope
 POST /actions/:actionType                      execute an Action Type
 WS   /subscribe                                live entity-change feed
 ```

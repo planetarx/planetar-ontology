@@ -21,6 +21,7 @@ const host = process.env.PLANETAR_BROKER_HOST ?? "127.0.0.1";
 const port = Number(process.env.PLANETAR_BROKER_PORT ?? 12002);
 const apiPort = Number(process.env.PLANETAR_API_PORT ?? 4000);
 const topics = (process.env.PLANETAR_TOPICS ?? "**").split(/\s+/).filter(Boolean);
+const traceMax = Number(process.env.PLANETAR_TRACE_MAX ?? 200_000);
 
 const store = new Store(dbPath);
 const registry = Registry.load();
@@ -40,7 +41,7 @@ api.listen(apiPort, () => console.error(`[api] listening on http://127.0.0.1:${a
 
 const stats = {
   observation: 0, action: 0, event: 0, unknown: 0, errors: 0,
-  merged: 0, created: 0, reacquired: 0,
+  merged: 0, created: 0, reacquired: 0, indexed: 0,
 };
 
 const conn = connectBroker({
@@ -57,6 +58,20 @@ const conn = connectBroker({
       console.error(`[decode] ${(e as Error).message}`);
       return;
     }
+
+    // Trace index — every envelope, classified or not (flow-trace §4.1).
+    store.insertEnvelope({
+      id: env.id,
+      topic: env.topic,
+      source: env.source,
+      schemaName: env.schemaName || null,
+      correlationId: env.correlationId || null,
+      causationId: env.causationId || null,
+      createdNs: env.createdAtNs,
+      storedNs: env.storedAtNs,
+      publishedNs: env.publishedAtNs,
+    });
+    if (++stats.indexed % 2000 === 0) store.pruneEnvelopes(traceMax);
 
     let body: Record<string, unknown> | null = null;
     if (env.payload.length) {

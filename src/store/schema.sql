@@ -66,6 +66,25 @@ CREATE TABLE IF NOT EXISTS event (
   body        TEXT
 );
 
+-- Metadata-only trace index: one row per envelope seen on the bus, classified
+-- or not (ARCH-planetar-flow-trace.md §4.1). The WAL remains the payload
+-- store; this table exists so causation/correlation chains can be walked
+-- after the fact. Bounded by PLANETAR_TRACE_MAX (pruned oldest-first).
+CREATE TABLE IF NOT EXISTS envelope (
+  id             TEXT PRIMARY KEY,        -- zmesg UUIDv7
+  topic          TEXT NOT NULL,
+  source         TEXT NOT NULL,
+  schema_name    TEXT,
+  correlation_id TEXT,                    -- '' on the wire → NULL here
+  causation_id   TEXT,
+  created_ns     INTEGER NOT NULL,
+  stored_ns      INTEGER,
+  published_ns   INTEGER
+);
+CREATE INDEX IF NOT EXISTS envelope_causation   ON envelope(causation_id);
+CREATE INDEX IF NOT EXISTS envelope_correlation ON envelope(correlation_id);
+CREATE INDEX IF NOT EXISTS envelope_created     ON envelope(created_ns);
+
 -- Structured, documented conflicts (core:Discrepancy, §9.3).
 CREATE TABLE IF NOT EXISTS discrepancy (
   id        TEXT PRIMARY KEY,

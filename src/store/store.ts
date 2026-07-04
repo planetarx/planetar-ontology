@@ -22,6 +22,23 @@ export interface ObservationRecord {
   body: unknown;
 }
 
+/**
+ * Metadata-only trace-index row — one per envelope seen on the bus, whether or
+ * not it classified (ARCH-planetar-flow-trace.md §4.1). No payload: the WAL is
+ * the payload store.
+ */
+export interface EnvelopeRecord {
+  id: string;
+  topic: string;
+  source: string;
+  schemaName: string | null;
+  correlationId: string | null;
+  causationId: string | null;
+  createdNs: bigint;
+  storedNs: bigint | null;
+  publishedNs: bigint | null;
+}
+
 /** Where one field's current value came from (ARCH-canonical-data-model.md §9.1). */
 export interface FieldProvenance {
   obs: string; // observation id
@@ -72,6 +89,7 @@ export interface EventRecord {
 
 const COUNTABLE = new Set([
   "entity", "observation", "identifier", "link", "event", "discrepancy",
+  "envelope",
 ]);
 
 function rowToEntity(row: Record<string, unknown>): EntityRecord {
@@ -84,6 +102,20 @@ function rowToEntity(row: Record<string, unknown>): EntityRecord {
     updatedNs: row.updated_ns as bigint,
     body: JSON.parse(row.body as string) as Record<string, unknown>,
     provenance: JSON.parse(row.provenance as string) as Record<string, FieldProvenance>,
+  };
+}
+
+function rowToEnvelope(row: Record<string, unknown>): EnvelopeRecord {
+  return {
+    id: row.id as string,
+    topic: row.topic as string,
+    source: row.source as string,
+    schemaName: (row.schema_name as string) ?? null,
+    correlationId: (row.correlation_id as string) ?? null,
+    causationId: (row.causation_id as string) ?? null,
+    createdNs: row.created_ns as bigint,
+    storedNs: (row.stored_ns as bigint) ?? null,
+    publishedNs: (row.published_ns as bigint) ?? null,
   };
 }
 
@@ -101,6 +133,12 @@ function rowToLink(row: Record<string, unknown>): LinkRecord {
 export class Store {
   readonly db: DatabaseSync;
   #insObs: StatementSync;
+  #getObs: StatementSync;
+  #insEnvelope: StatementSync;
+  #getEnvelope: StatementSync;
+  #envByCausation: StatementSync;
+  #envByCorrelation: StatementSync;
+  #pruneEnvelopes: StatementSync;
   #insEntity: StatementSync;
   #updEntity: StatementSync;
   #getEntity: StatementSync;
@@ -124,6 +162,31 @@ export class Store {
          (id, entity_id, type, source, topic, ts_ns, confidence, body)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     );
+    this.#getObs = this.db.prepare(`SELECT * FROM observation WHERE id = ?`);
+    this.#getObs.setReadBigInts(true);
+
+    this.#insEnvelope = this.db.prepare(
+      `INSERT OR IGNORE INTO envelope
+         (id, topic, source, schema_name, correlation_id, causation_id,
+          created_ns, stored_ns, published_ns)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    this.#getEnvelope = this.db.prepare(`SELECT * FROM envelope WHERE id = ?`);
+    this.#envByCausation = this.db.prepare(
+      `SELECT * FROM envelope WHERE causation_id = ? ORDER BY created_ns LIMIT ?`,
+    );
+    this.#envByCorrelation = this.db.prepare(
+      `SELECT * FROM envelope WHERE correlation_id = ? ORDER BY created_ns LIMIT ?`,
+    );
+    // keep the newest N by created_ns; LIMIT -1 OFFSET n = "everything past n"
+    this.#pruneEnvelopes = this.db.prepare(
+      `DELETE FROM envelope WHERE id IN
+         (SELECT id FROM envelope ORDER BY created_ns DESC LIMIT -1 OFFSET ?)`,
+    );
+    this.#getEnvelope.setReadBigInts(true);
+    this.#envByCausation.setReadBigInts(true);
+    this.#envByCorrelation.setReadBigInts(true);
+
     this.#insEntity = this.db.prepare(
       `INSERT INTO entity
          (id, type, schema_version, name, created_ns, updated_ns, body, provenance)
@@ -169,6 +232,53 @@ export class Store {
       o.id, o.entityId, o.type, o.source, o.topic, o.tsNs, o.confidence,
       JSON.stringify(o.body),
     );
+  }
+
+  /** One observation row by envelope id (trace → entity linkage). */
+  getObservation(id: string): ObservationRecord | null {
+    const row = this.#getObs.get(id) as Record<string, unknown> | undefined;
+    if (!row) return null;
+    return {
+      id: row.id as string,
+      entityId: (row.entity_id as string) ?? null,
+      type: row.type as string,
+      source: row.source as string,
+      topic: (row.topic as string) ?? null,
+      tsNs: row.ts_ns as bigint,
+      confidence: (row.confidence as number) ?? null,
+      body: JSON.parse(row.body as string),
+    };
+  }
+
+  /** Index one envelope's metadata. Idempotent on the envelope id. */
+  insertEnvelope(e: EnvelopeRecord): void {
+    this.#insEnvelope.run(
+      e.id, e.topic, e.source, e.schemaName, e.correlationId, e.causationId,
+      e.createdNs, e.storedNs, e.publishedNs,
+    );
+  }
+
+  getEnvelope(id: string): EnvelopeRecord | null {
+    const row = this.#getEnvelope.get(id) as Record<string, unknown> | undefined;
+    return row ? rowToEnvelope(row) : null;
+  }
+
+  /** Direct causal children of an envelope (causation_id = id). */
+  envelopesCausedBy(id: string, limit = 100): EnvelopeRecord[] {
+    return (this.#envByCausation.all(id, limit) as Record<string, unknown>[]).map(
+      rowToEnvelope,
+    );
+  }
+
+  envelopesByCorrelation(correlationId: string, limit = 100): EnvelopeRecord[] {
+    return (this.#envByCorrelation.all(correlationId, limit) as Record<string, unknown>[]).map(
+      rowToEnvelope,
+    );
+  }
+
+  /** Drop everything but the newest `max` envelope rows. */
+  pruneEnvelopes(max: number): void {
+    this.#pruneEnvelopes.run(max);
   }
 
   insertEntity(e: EntityRecord): void {
