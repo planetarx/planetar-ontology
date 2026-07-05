@@ -10,8 +10,8 @@ Design doc: `~/data/vaults/docs/ARCH-planetar-ontology.md`.
 
 ## Status
 
-All six build phases are complete — 37 tests pass (`npm test`); P1–P5 are
-verified live against the running planetar-broker.
+All seven build phases are complete — 40 tests pass (`npm test`); P1–P5 and
+P7 are verified live against the running planetar-broker.
 
 | Phase | Scope | State |
 |---|---|---|
@@ -21,12 +21,22 @@ verified live against the running planetar-broker.
 | **P4** | Action Type executor (Kinetic layer) | **done** |
 | **P5** | dark-vessel re-ID kinematic match rule | **done** |
 | **P6** | envelope trace index + `GET /trace/:id` lineage API | **done** |
+| **P7** | bus producer — `entity.<kind>.updated` published per mutation | **done** |
 
 P6 (design: `ARCH-planetar-flow-trace.md`) indexes the metadata of **every**
 envelope seen on the bus — classified or not — into a bounded `envelope` table
 (`PLANETAR_TRACE_MAX`, default 200 000 rows), and serves causal lineage
 (`causationId` ancestors/descendants, `correlationId` siblings, and the entity
 fields the envelope's observation set) to the planetar-ui Flow tab.
+
+P7 closes the loop: every entity mutation (create / merge / reacquisition /
+Action Type) is published back onto the bus as an `entity.<kind>.updated`
+envelope — `causation_id` = the observation envelope that triggered it,
+`correlation_id` = the entity id — so traces run *through* the graph and any
+consumer can react to entity changes without knowing this API exists. The
+ingest loop skips (but still trace-indexes) envelopes whose source is
+`planetar-ontology`, so the service never feeds on its own output. Disable
+with `PLANETAR_PUBLISH=0`; producer port `PLANETAR_BROKER_PUB_PORT` (12001).
 
 ## API
 

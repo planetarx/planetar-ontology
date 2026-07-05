@@ -15,25 +15,45 @@ import { Resolver } from "./resolve/resolve.ts";
 import { DarkVesselMatcher, applyReacquisition } from "./resolve/kinematics.ts";
 import { ActionExecutor } from "./actions/executor.ts";
 import { createApiServer } from "./api/server.ts";
+import { EntityPublisher, SELF_SOURCE, connectProducer } from "./publish/publisher.ts";
 
 const dbPath = process.env.PLANETAR_ONTOLOGY_DB ?? "planetar-ontology.db";
 const host = process.env.PLANETAR_BROKER_HOST ?? "127.0.0.1";
 const port = Number(process.env.PLANETAR_BROKER_PORT ?? 12002);
+const pubPort = Number(process.env.PLANETAR_BROKER_PUB_PORT ?? 12001);
 const apiPort = Number(process.env.PLANETAR_API_PORT ?? 4000);
 const topics = (process.env.PLANETAR_TOPICS ?? "**").split(/\s+/).filter(Boolean);
 const traceMax = Number(process.env.PLANETAR_TRACE_MAX ?? 200_000);
+const publishEnabled = (process.env.PLANETAR_PUBLISH ?? "1") !== "0";
 
 const store = new Store(dbPath);
 const registry = Registry.load();
 const resolver = new Resolver(store, registry);
 const matcher = new DarkVesselMatcher(store);
 const executor = new ActionExecutor(store, registry);
+
+// P7 — entity mutations go back onto the bus (entity.<kind>.updated).
+const producer = publishEnabled
+  ? connectProducer({ host, port: pubPort, onStatus: (m) => console.error(`[publish] ${m}`) })
+  : null;
+const entityPub = producer ? new EntityPublisher(producer) : null;
+const publishEntity = (entityId: string, action: string, causationId: string): void => {
+  if (!entityPub) return;
+  const ent = store.getEntity(entityId);
+  if (!ent) return;
+  entityPub.publishEntityUpdated(ent, action, causationId);
+  stats.published++;
+};
+
 const api = createApiServer(store, registry, {
   onAction: (type, params) => {
     const out = executor.execute(type, params);
     const target = (out.body as { target?: unknown }).target;
     // a successful action changed the entity — push it to the live feed
-    if (out.status === 200 && typeof target === "string") api.notifyEntity(target);
+    if (out.status === 200 && typeof target === "string") {
+      api.notifyEntity(target);
+      publishEntity(target, `action:${type}`, ""); // API-initiated: no bus-side cause
+    }
     return out;
   },
 });
@@ -41,7 +61,7 @@ api.listen(apiPort, () => console.error(`[api] listening on http://127.0.0.1:${a
 
 const stats = {
   observation: 0, action: 0, event: 0, unknown: 0, errors: 0,
-  merged: 0, created: 0, reacquired: 0, indexed: 0,
+  merged: 0, created: 0, reacquired: 0, indexed: 0, published: 0,
 };
 
 const conn = connectBroker({
@@ -73,6 +93,11 @@ const conn = connectBroker({
     });
     if (++stats.indexed % 2000 === 0) store.pruneEnvelopes(traceMax);
 
+    // Our own entity.*.updated envelopes come back via SUB ** — they are
+    // trace-indexed above (the trace should show that hop) but must never
+    // re-enter classify/resolve, or the ontology feeds on its own output.
+    if (env.source === SELF_SOURCE) return;
+
     let body: Record<string, unknown> | null = null;
     if (env.payload.length) {
       try {
@@ -99,6 +124,7 @@ const conn = connectBroker({
       if (r.action === "merge") stats.merged++;
       else stats.created++;
       api.notifyEntity(entityId);
+      publishEntity(entityId, r.action === "merge" ? "merged" : "created", env.id);
     } else if (body && cls.type === "planetar:Detection") {
       // P5 — a no-MMSI detection: try to re-identify a dark vessel by kinematics
       const lat = typeof body.lat === "number" ? body.lat : null;
@@ -113,6 +139,7 @@ const conn = connectBroker({
           entityId = m.vesselId;
           applyReacquisition(store, m, det);
           api.notifyEntity(m.vesselId);
+          publishEntity(m.vesselId, "reacquired", env.id);
           stats.reacquired++;
         }
       }
@@ -135,7 +162,8 @@ const ticker = setInterval(() => {
   console.error(
     `[ontology] obs=${stats.observation} (merged=${stats.merged} new=${stats.created} ` +
       `reacquired=${stats.reacquired}) act=${stats.action} evt=${stats.event} ` +
-      `unknown=${stats.unknown} errors=${stats.errors} · entities=${store.count("entity")} ` +
+      `unknown=${stats.unknown} errors=${stats.errors} published=${stats.published} ` +
+      `· entities=${store.count("entity")} ` +
       `observations=${store.count("observation")} links=${store.count("link")} ` +
       `discrepancies=${store.count("discrepancy")}`,
   );
@@ -144,6 +172,7 @@ const ticker = setInterval(() => {
 const shutdown = (): void => {
   clearInterval(ticker);
   conn.close();
+  producer?.close();
   api.close();
   store.close();
   console.error("[ontology] stopped");
