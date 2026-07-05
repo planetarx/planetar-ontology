@@ -4,8 +4,11 @@
  * Folds an incoming observation into a canonical entity: finds candidates via
  * the identifier index, scores them, and either merges into the best match
  * (exact-identifier band) or creates a new entity. Merging applies
- * highest-confidence-wins per field and records a core:Discrepancy whenever
- * sources disagree.
+ * highest-confidence-wins per field, with newest-wins as the tie-break (a
+ * same-confidence update supersedes — a live feed must move its entity), and
+ * records a core:Discrepancy only when SOURCES disagree: two sensors making
+ * different claims is a documentable conflict (§9.3); one sensor superseding
+ * its own earlier value is just an update.
  *
  * Generic per ARCH-canonical-data-model.md §5.2: each canonical type declares
  * its identifier fields in the registry; this one engine serves them all.
@@ -150,8 +153,9 @@ export class Resolver {
         continue;
       }
       const conflict = !valuesEqual(ent.body[k], v);
-      const incomingWins = conf > prior.conf;
-      if (conflict) {
+      const newer = tsNs >= BigInt(prior.ts);
+      const incomingWins = conf > prior.conf || (conf === prior.conf && newer);
+      if (conflict && prior.src !== source) {
         const winner: Claim = incomingWins
           ? { value: v, prov: incomingProv }
           : { value: ent.body[k], prov: prior };

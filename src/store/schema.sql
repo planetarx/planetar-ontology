@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS observation (
 );
 CREATE INDEX IF NOT EXISTS observation_entity ON observation(entity_id);
 CREATE INDEX IF NOT EXISTS observation_type   ON observation(type);
+CREATE INDEX IF NOT EXISTS observation_ts     ON observation(ts_ns);
 
 -- Identifier-claim index — drives identity resolution (core:Identifier).
 CREATE TABLE IF NOT EXISTS identifier (

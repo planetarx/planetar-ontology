@@ -63,7 +63,16 @@ npm run publish-synth     # publish synthetic vessel envelopes to the broker :12
 ```
 
 Env: `PLANETAR_ONTOLOGY_DB` (default `planetar-ontology.db`),
-`PLANETAR_TOPICS` (default `**`), `PLANETAR_BROKER_HOST` / `PLANETAR_BROKER_PORT`.
+`PLANETAR_TOPICS` (default `**`), `PLANETAR_BROKER_HOST` / `PLANETAR_BROKER_PORT`,
+`PLANETAR_BROKER_PUB_PORT` (12001), `PLANETAR_PUBLISH` (`0` disables P7).
+
+**Retention** (pruned every 2 000 ingested envelopes, oldest-first):
+`PLANETAR_TRACE_MAX` envelopes (200 000) · `PLANETAR_OBS_MAX` observations
+(500 000 — rows referenced by entity field-provenance are never pruned) ·
+`PLANETAR_DISCREPANCY_MAX` discrepancies (100 000). Merge semantics keep the
+tables honest too: same-confidence updates supersede (newest wins) without
+recording a discrepancy — discrepancies are reserved for *cross-source*
+disagreements.
 
 ## Layout
 

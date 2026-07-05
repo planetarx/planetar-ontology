@@ -24,6 +24,8 @@ const pubPort = Number(process.env.PLANETAR_BROKER_PUB_PORT ?? 12001);
 const apiPort = Number(process.env.PLANETAR_API_PORT ?? 4000);
 const topics = (process.env.PLANETAR_TOPICS ?? "**").split(/\s+/).filter(Boolean);
 const traceMax = Number(process.env.PLANETAR_TRACE_MAX ?? 200_000);
+const obsMax = Number(process.env.PLANETAR_OBS_MAX ?? 500_000);
+const discMax = Number(process.env.PLANETAR_DISCREPANCY_MAX ?? 100_000);
 const publishEnabled = (process.env.PLANETAR_PUBLISH ?? "1") !== "0";
 
 const store = new Store(dbPath);
@@ -91,7 +93,11 @@ const conn = connectBroker({
       storedNs: env.storedAtNs,
       publishedNs: env.publishedAtNs,
     });
-    if (++stats.indexed % 2000 === 0) store.pruneEnvelopes(traceMax);
+    if (++stats.indexed % 2000 === 0) {
+      store.pruneEnvelopes(traceMax);
+      store.pruneObservations(obsMax);
+      store.pruneDiscrepancies(discMax);
+    }
 
     // Our own entity.*.updated envelopes come back via SUB ** — they are
     // trace-indexed above (the trace should show that hop) but must never

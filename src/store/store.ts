@@ -139,6 +139,8 @@ export class Store {
   #envByCausation: StatementSync;
   #envByCorrelation: StatementSync;
   #pruneEnvelopes: StatementSync;
+  #pruneObservations: StatementSync;
+  #pruneDiscrepancies: StatementSync;
   #insEntity: StatementSync;
   #updEntity: StatementSync;
   #getEntity: StatementSync;
@@ -182,6 +184,21 @@ export class Store {
     this.#pruneEnvelopes = this.db.prepare(
       `DELETE FROM envelope WHERE id IN
          (SELECT id FROM envelope ORDER BY created_ns DESC LIMIT -1 OFFSET ?)`,
+    );
+    // Observations referenced by any entity's field provenance are immortal —
+    // deleting them would orphan the provenance chain. Everything else keeps
+    // only the newest N.
+    this.#pruneObservations = this.db.prepare(
+      `DELETE FROM observation WHERE id IN
+         (SELECT o.id FROM observation o
+          WHERE o.id NOT IN
+            (SELECT je.value ->> 'obs' FROM entity e, json_each(e.provenance) je)
+          ORDER BY o.ts_ns DESC LIMIT -1 OFFSET ?)`,
+    );
+    // discrepancy has no timestamp column — rowid is insertion order
+    this.#pruneDiscrepancies = this.db.prepare(
+      `DELETE FROM discrepancy WHERE rowid IN
+         (SELECT rowid FROM discrepancy ORDER BY rowid DESC LIMIT -1 OFFSET ?)`,
     );
     this.#getEnvelope.setReadBigInts(true);
     this.#envByCausation.setReadBigInts(true);
@@ -279,6 +296,16 @@ export class Store {
   /** Drop everything but the newest `max` envelope rows. */
   pruneEnvelopes(max: number): void {
     this.#pruneEnvelopes.run(max);
+  }
+
+  /** Keep the newest `max` observations plus any referenced by provenance. */
+  pruneObservations(max: number): void {
+    this.#pruneObservations.run(max);
+  }
+
+  /** Keep the newest `max` discrepancy rows (insertion order). */
+  pruneDiscrepancies(max: number): void {
+    this.#pruneDiscrepancies.run(max);
   }
 
   insertEntity(e: EntityRecord): void {
