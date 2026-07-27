@@ -1,9 +1,9 @@
 {
   "name": "planetar-ontology",
   "version": "0.1.0",
-  "description": "Ontology service — CH13 reference architecture layer 4 (the entity graph)",
+  "description": "Ontology service \u2014 CH13 reference architecture layer 4 (the entity graph)",
   "type": "module",
-  "license": "AGPL-3.0-or-later",
+  "license": "GPL-3.0-or-later",
   "engines": {
     "node": ">=22.18"
   },
