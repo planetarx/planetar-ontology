@@ -90,5 +90,6 @@ tools/publish.ts        synthetic envelope publisher (for live testing)
 
 ## Licensing
 
-Licensed under **AGPL-3.0** (see [`LICENSE`](LICENSE)). **Commercial licenses**
-(for use without AGPL obligations) are available — contact `sness@sness.net`.
+Licensed under **GPL-3.0-or-later** (see [`LICENSE`](LICENSE)) — a single
+licence for everyone, no CLA. Paid add-on services (support, hosting,
+integration, defence contracts) are available — contact `sness@sness.net`.
