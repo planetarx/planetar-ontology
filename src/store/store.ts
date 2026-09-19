@@ -154,6 +154,22 @@ export class Store {
 
   constructor(path: string = ":memory:") {
     this.db = new DatabaseSync(path);
+    // Refuse a corrupt file here, loudly, rather than run on it. On
+    // 2026-07-30 the live db went "malformed" mid-run: inserts kept working
+    // while every retention prune threw (swallowed by the ingest loop), so
+    // it grew to 14 GB and two restarts carried it forward unnoticed.
+    // quick_check is O(file) at startup — seconds on a retention-bounded db.
+    let verdict: string;
+    try {
+      const rows = this.db.prepare("PRAGMA quick_check(3)").all() as { quick_check: string }[];
+      verdict = rows.map((r) => r.quick_check).join("; ");
+    } catch (e) {
+      verdict = (e as Error).message;
+    }
+    if (verdict !== "ok") {
+      this.db.close();
+      throw new Error(`refusing to open ${path}: quick_check: ${verdict}`);
+    }
     this.db.exec("PRAGMA journal_mode = WAL;");
     this.db.exec("PRAGMA foreign_keys = ON;");
     const schema = readFileSync(join(import.meta.dirname, "schema.sql"), "utf8");

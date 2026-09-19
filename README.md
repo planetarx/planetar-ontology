@@ -10,7 +10,7 @@ Design doc: `~/data/vaults/docs/ARCH-planetar-ontology.md`.
 
 ## Status
 
-All eight build phases are complete — 45 tests pass (`npm test`); P1–P5, P7,
+All eight build phases are complete — 47 tests pass (`npm test`); P1–P5, P7,
 and P8 are verified live against the running planetar-broker.
 
 | Phase | Scope | State |
@@ -23,6 +23,7 @@ and P8 are verified live against the running planetar-broker.
 | **P6** | envelope trace index + `GET /trace/:id` lineage API | **done** |
 | **P7** | bus producer — `entity.<kind>.updated` published per mutation | **done** |
 | **P8** | newest-wins merge, cross-source-only discrepancies, bounded retention | **done** |
+| **P9** | startup `PRAGMA quick_check` — refuse to open a corrupt db (2026-07-30 incident) | **done** |
 
 P6 (design: `ARCH-planetar-flow-trace.md`) indexes the metadata of **every**
 envelope seen on the bus — classified or not — into a bounded `envelope` table
