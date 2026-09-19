@@ -10,7 +10,7 @@ Design doc: `~/data/vaults/docs/ARCH-planetar-ontology.md`.
 
 ## Status
 
-All eight build phases are complete — 47 tests pass (`npm test`); P1–P5, P7,
+All eight build phases are complete — 48 tests pass (`npm test`); P1–P5, P7,
 and P8 are verified live against the running planetar-broker.
 
 | Phase | Scope | State |

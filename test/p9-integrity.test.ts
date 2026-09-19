@@ -14,7 +14,7 @@ import assert from "node:assert/strict";
 import { closeSync, mkdtempSync, openSync, rmSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Store } from "../src/store/store.ts";
+import { Store, StoreCorruptError } from "../src/store/store.ts";
 
 const PAGE = 4096;
 
@@ -64,4 +64,17 @@ test("a corrupt on-disk database is refused at open with a quick_check message",
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// quick_check validates page structure only — it reported "ok" on the
+// 2026-07-30 file whose index corruption only surfaced inside the prune
+// DELETEs. So the second guard is at the prune itself: a store that cannot
+// bound itself must fail as a distinguishable fatal error, not a log line.
+test("a prune failure surfaces as StoreCorruptError so the process can stop instead of growing unbounded", () => {
+  const store = new Store(":memory:");
+  store.db.close(); // any prune statement now throws
+  assert.throws(
+    () => store.pruneAll({ traceMax: 10, obsMax: 10, discMax: 10 }),
+    (e: unknown) => e instanceof StoreCorruptError && /prune/.test(e.message),
+  );
 });

@@ -130,6 +130,27 @@ function rowToLink(row: Record<string, unknown>): LinkRecord {
   };
 }
 
+/**
+ * Thrown when the store can no longer bound itself. A prune that fails is
+ * not a transient: on 2026-07-30 every prune threw "database disk image is
+ * malformed" for seven weeks while inserts kept succeeding, and the file
+ * grew from 500 k observations to 20 M / 14 GB. quick_check at open did not
+ * see that corruption (it skips index-vs-table consistency), so the prune
+ * itself is the guard — callers must treat this as fatal.
+ */
+export class StoreCorruptError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "StoreCorruptError";
+  }
+}
+
+export interface RetentionLimits {
+  traceMax: number;
+  obsMax: number;
+  discMax: number;
+}
+
 export class Store {
   readonly db: DatabaseSync;
   #insObs: StatementSync;
@@ -310,6 +331,17 @@ export class Store {
   }
 
   /** Drop everything but the newest `max` envelope rows. */
+  /** Run all three retention prunes; any failure is a StoreCorruptError. */
+  pruneAll(limits: RetentionLimits): void {
+    try {
+      this.pruneEnvelopes(limits.traceMax);
+      this.pruneObservations(limits.obsMax);
+      this.pruneDiscrepancies(limits.discMax);
+    } catch (e) {
+      throw new StoreCorruptError(`retention prune failed: ${(e as Error).message}`);
+    }
+  }
+
   pruneEnvelopes(max: number): void {
     this.#pruneEnvelopes.run(max);
   }

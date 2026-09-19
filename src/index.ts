@@ -94,9 +94,14 @@ const conn = connectBroker({
       publishedNs: env.publishedAtNs,
     });
     if (++stats.indexed % 2000 === 0) {
-      store.pruneEnvelopes(traceMax);
-      store.pruneObservations(obsMax);
-      store.pruneDiscrepancies(discMax);
+      try {
+        store.pruneAll({ traceMax, obsMax, discMax });
+      } catch (e) {
+        // A store that cannot prune grows without bound (2026-07-30). Die
+        // loudly so pm2 shows a crash loop instead of a 14 GB file.
+        console.error(`[store] fatal: ${(e as Error).message}`);
+        process.exit(2);
+      }
     }
 
     // Our own entity.*.updated envelopes come back via SUB ** — they are
